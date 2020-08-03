@@ -102,7 +102,7 @@ def render_rays(
     pts_flat = jnp.reshape(pts, [-1, 3])
     pts_flat = embed_fn(pts_flat, L_embed)
     raw = lax.map(net_fn, jnp.reshape(pts_flat, [-1, batch_size, pts_flat.shape[-1]]))
-    jax.profiler.save_device_memory_profile("myagues_raw.prof")
+    # jax.profiler.save_device_memory_profile("myagues_raw.prof")
     raw = jnp.reshape(raw, list(pts.shape[:-1]) + [4])
 
     # Compute opacities and colors
