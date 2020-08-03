@@ -147,7 +147,7 @@ def update(i: int, opt_state: Any, rng: Any) -> Any:
     this_img = np.asarray(imageio.imread(imagedir + '/' + sorted_list[idx]))
     print(f"this_img.shape is {this_img.shape}")
     img_rng, fn_rng = random.split(random.fold_in(rng, i))
-    img_idx = random.randint(img_rng, (1,), minval=0, maxval=images.shape[0])[0]
+    img_idx = random.randint(img_rng, (1,), minval=0, maxval=len(sorted_list)-1)
     batch = (train_rays[img_idx], images[img_idx])
     params = get_params(opt_state)
     grads, _ = grad(loss_fun, has_aux=True)(params, batch, fn_rng, True)
