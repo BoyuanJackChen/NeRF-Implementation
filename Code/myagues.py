@@ -77,7 +77,7 @@ def get_rays(H: int, W: int, focal: float, c2w: jnp.ndarray) -> jnp.ndarray:
 
 
 L_embed = 10
-batch_size = 64*47*3
+batch_size = 4032*16
 def render_rays(
     net_fn: Any,
     rays: jnp.ndarray,
@@ -89,7 +89,6 @@ def render_rays(
     rng: Optional[Any] = None,
     rand: bool = False,
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-
     rays_o, rays_d = rays
     # Compute 3D query points
     z_vals = jnp.linspace(near, far, N_samples)
@@ -145,10 +144,9 @@ def loss_fun(
 def update(i: int, opt_state: Any, rng: Any) -> Any:
     idx = orandom.randint(0, len(sorted_list) - 1)
     this_img = np.asarray(imageio.imread(imagedir + '/' + sorted_list[idx]))
-    print(f"this_img.shape is {this_img.shape}")
     img_rng, fn_rng = random.split(random.fold_in(rng, i))
     img_idx = random.randint(img_rng, (1,), minval=0, maxval=len(sorted_list)-1)
-    batch = (train_rays[img_idx], this_img[...,:3]/255.)
+    batch = (train_rays[img_idx][0], this_img[...,:3]/255.)  # !!! didn't have this [0]
     params = get_params(opt_state)
     grads, _ = grad(loss_fun, has_aux=True)(params, batch, fn_rng, True)
     return opt_update(i, grads, opt_state)
@@ -164,6 +162,7 @@ def evaluate(params: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray]:
 
 if __name__ == "__main__":
     # --- Load the fortress scene in 1\factor^2 resolution ---
+    factor = None
     imagedir = LLFF_DATA+"/fortress"
     print(f"basedir is: {imagedir}")
     # images, raw_poses, bds, render_poses, i_test = load_llff_data(imagedir, factor=64,
@@ -173,7 +172,6 @@ if __name__ == "__main__":
     # images = jnp.array(images)
     poses = jnp.array(poses_35_to_44(raw_poses))
     focal = get_focal(bds)
-    factor = None
     # print(f"images shape {images.shape}; poses shape {poses.shape}; focal is {focal}")
 
     L_embed = 10
@@ -203,7 +201,7 @@ if __name__ == "__main__":
     psnrs: List[float] = []
     iternums: List[int] = []
     i_plot = 10
-    batch_size = 64*47*3*3*7
+    batch_size = 4032*16
     for i in range(N_iters + 1):
         t = time.perf_counter()
         opt_state = update(i, opt_state, key)
