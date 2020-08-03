@@ -148,7 +148,7 @@ def update(i: int, opt_state: Any, rng: Any) -> Any:
     print(f"this_img.shape is {this_img.shape}")
     img_rng, fn_rng = random.split(random.fold_in(rng, i))
     img_idx = random.randint(img_rng, (1,), minval=0, maxval=len(sorted_list)-1)
-    batch = (train_rays[img_idx], images[img_idx])
+    batch = train_rays[img_idx], this_img[...,:3]/255.
     params = get_params(opt_state)
     grads, _ = grad(loss_fun, has_aux=True)(params, batch, fn_rng, True)
     return opt_update(i, grads, opt_state)
