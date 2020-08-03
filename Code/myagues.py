@@ -89,6 +89,7 @@ def render_rays(
     rng: Optional[Any] = None,
     rand: bool = False,
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    print("in render_rays")
     rays_o, rays_d = rays
     # Compute 3D query points
     z_vals = jnp.linspace(near, far, N_samples)
@@ -144,10 +145,12 @@ def loss_fun(
 def update(i: int, opt_state: Any, rng: Any) -> Any:
     idx = orandom.randint(0, len(sorted_list) - 1)
     this_img = np.asarray(imageio.imread(imagedir + '/' + sorted_list[idx]))
+    print("image read")
     img_rng, fn_rng = random.split(random.fold_in(rng, i))
     img_idx = random.randint(img_rng, (1,), minval=0, maxval=len(sorted_list)-1)
     batch = (train_rays[img_idx][0], this_img[...,:3]/255.)  # !!! didn't have this [0]
     params = get_params(opt_state)
+    print("entering loss")
     grads, _ = grad(loss_fun, has_aux=True)(params, batch, fn_rng, True)
     return opt_update(i, grads, opt_state)
 
