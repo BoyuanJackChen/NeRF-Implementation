@@ -1,7 +1,7 @@
 import sys
 import random
 import matplotlib.pyplot as plt
-from jax import grad, jit, vmap, lax, partial
+from jax import grad, jit, vmap
 from sys import platform
 import time
 import jax
@@ -99,7 +99,6 @@ def create_adam_optimizer(model, learning_rate, beta1=0.9, beta2=0.999, weight_d
     return optimizer
 
 
-@partial(jit, static_argnums=(0, 1, 2))
 def get_rays(H, W, focal, c2w):
     i, j = jnp.meshgrid(jnp.arange(0, W, dtype=jnp.float32),
                         jnp.arange(0, H, dtype=jnp.float32), sparse=False, indexing='xy')
@@ -111,7 +110,7 @@ def get_rays(H, W, focal, c2w):
     return rays_o, rays_d
 
 
-batchify_size=21*47
+batchify_size=1024*16
 def render_rays(network_fn, rays_o, rays_d, near, far, N_samples, rand=False,
                 key=jax.random.PRNGKey(0)):
     def batchify(fn):
@@ -123,12 +122,10 @@ def render_rays(network_fn, rays_o, rays_d, near, far, N_samples, rand=False,
         z_vals += jax.random.uniform(subkey, list(rays_o.shape[:-1]) + [N_samples], dtype=jnp.float32) \
                   * (far - near) / N_samples
     pts = rays_o[..., None, :] + rays_d[..., None, :] * z_vals[..., :, None]
-
     pts_flat = jnp.reshape(pts, [-1, 3])
     pts_flat = embed_fn(pts_flat)     # pts_flat is an array of shape (H*W*N*3, 51)
     # --- This is where I wish it to batchify, but it fails to! ---
-    # raw = batchify(network_fn)(pts_flat)
-    raw = lax.map(network_fn, jnp.reshape(pts_flat, [-1, batchify_size, pts_flat.shape[-1]]))
+    raw = batchify(network_fn)(pts_flat)
     jax.profiler.save_device_memory_profile("batchify-line.prof")
     raw = jnp.reshape(raw, list(pts.shape[:-1]) + [4])
     # Compute opacities and colors
@@ -146,23 +143,75 @@ def render_rays(network_fn, rays_o, rays_d, near, far, N_samples, rand=False,
     return rgb_map, depth_map, acc_map
 
 
-''' Function trains a jax nerf optimizer from its initial state '''
 def train_nerf(optimizer, images, poses, focal, near, far, batchify_size=1024*32,
                N_samples=32, N_iters=2000, i_plot=100, monitor=30, test_index=0):
     H,W = (images.shape)[1:3]
     testimg = images[test_index]; testpose = poses[test_index]
     rand_key = jax.random.PRNGKey(0)
     for i in range(N_iters + 1):
-        img_i = random.randint(0, images.shape[0]-1)
+        img_i = random.randint(0, images.shape[0])
         target = images[img_i]
         pose = poses[img_i]
         rays_o, rays_d = get_rays(H, W, focal, pose)
         # Render the image and calculate the loss
         def loss_fn(model):
-            # model_ = nn.Module.partial(model, nn.get_param(model))
             rgb, depth, acc = render_rays(model, rays_o, rays_d, near=near, far=far,
                                 N_samples=N_samples, rand=True)
             loss = jnp.mean(jnp.square(rgb - target))
+            return loss, rgb
+        grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
+        (loss, logits), grad = grad_fn(optimizer.target)
+        optimizer = optimizer.apply_gradient(grad)
+        print(f"Step {i} done; loss is {loss}")
+    return optimizer
+
+
+batchify_size=1024*16
+def render_rays_batchifyrow(network_fn, z_vals, pts_batch):
+    pts_flat = jnp.reshape(pts_batch, [-1, 3])
+    pts_flat = embed_fn(pts_flat)     # pts_flat is an array of shape (H*W*N*3, 51)
+    # --- This is where I wish it to batchify, but it fails to! ---
+    raw = network_fn(pts_flat)
+    jax.profiler.save_device_memory_profile("batchify-line.prof")
+    raw = jnp.reshape(raw, list(pts.shape[:-1]) + [4])
+    # Compute opacities and colors
+    sigma_a = nn.relu(raw[..., 3])    # (row_batch, W, N_samples)
+    rgb = nn.sigmoid(raw[..., :3])    # (row_batch, W, N_samples, 3)
+    # Do volume rendering (P6 equation (3))
+    dists = jnp.concatenate((z_vals[..., 1:] - z_vals[..., :-1],
+                       jnp.broadcast_to([1e10], z_vals[..., :1].shape)), -1)   # (H, W, N_samples)
+    alpha = 1. - jnp.exp(-sigma_a * dists)
+    weights = alpha * jnp.cumprod(1. - alpha + 1e-10, axis=-1, dtype=jnp.float32)
+    # Compute cumulative product along axis
+    rgb_map   = jnp.sum(weights[..., None] * rgb, -2)
+    depth_map = jnp.sum(weights * z_vals, -1)
+    acc_map   = jnp.sum(weights, -1)
+    return rgb_map, depth_map, acc_map
+
+
+row_batch = 5
+def train_nerf_batchifyrow(optimizer, images, poses, focal, near, far, batchify_size=1024*32,
+               N_samples=32, N_iters=2000, i_plot=100, test_index=0):
+    H,W = (images.shape)[1:3]
+    testimg = images[test_index]; testpose = poses[test_index]
+    for i in range(N_iters + 1):
+        key = jax.random.PRNGKey(i)
+        img_i = random.randint(0, images.shape[0])
+        target = images[img_i]; pose = poses[img_i]
+        rays_o, rays_d = get_rays(H, W, focal, pose)     # (H, W, 3)
+        z_vals = jnp.linspace(near, far, N_samples)      # (H, W, N)
+        key, subkey = jax.random.split(key)
+        z_vals += jax.random.uniform(subkey, list(rays_o.shape[:-1]) + [N_samples], dtype=jnp.float32) \
+                  * (far - near) / N_samples
+        pts = rays_o[..., None, :] + rays_d[..., None, :] * z_vals[..., :, None]
+        num_batch = int(pts.shape[0]/row_batch)
+        pts_batched = jnp.reshape(pts, newshape=[num_batch, row_batch, pts.shape[1], pts.shape[2], pts.shape[3]])
+        target_batched = jnp.reshape(target, newshape=[num_batch, row_batch, target.shape[1], target.shape[2]])
+        # pts_batched is (num_batch, size_of_each_batch, W, N, 3); target is (num_batch, size_of_each_batch, W, 3)
+
+        def loss_fn(model):
+            rgb_batch, depth, acc = render_rays_batchifyrow(model, z_vals, pts_batched)
+            loss = jnp.mean(jnp.square(rgb_batch - target_batch))
             return loss, rgb
         grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
         (loss, logits), grad = grad_fn(optimizer.target)
@@ -178,7 +227,7 @@ if __name__ == "__main__":
     # --- Load the fortress scene in 1\factor^2 resolution ---
     imagedir = LLFF_DATA+"/fortress"
     print(f"basedir is: {imagedir}")
-    images, raw_poses, bds, render_poses, i_test = load_llff_data(imagedir, factor=64,
+    images, raw_poses, bds, render_poses, i_test = load_llff_data(imagedir, factor=32,
             recenter=True, bd_factor=.75, spherify=False, path_zflat=False)
     poses = poses_35_to_44(raw_poses)
     focal = get_focal(bds)
@@ -187,5 +236,5 @@ if __name__ == "__main__":
     N_iters = 3000
     model = create_model(key=None)
     optimizer = create_adam_optimizer(model, learning_rate=5e-4, beta1=0.9, beta2=0.999)
-    train_nerf(optimizer, images, poses, focal, near=2., far=6.,
-               N_samples=64, N_iters=2000, i_plot=100, monitor=30, test_index=0)
+    train_nerf_batchifyrow(optimizer, images, poses, focal, near=2., far=6.,
+               N_samples=32, N_iters=2000, i_plot=100, test_index=0)
