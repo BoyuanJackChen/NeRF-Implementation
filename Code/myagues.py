@@ -14,6 +14,7 @@ from jax.experimental.stax import Dense, FanInConcat, FanOut, Identity, Relu
 from jax.nn import relu, sigmoid
 from tqdm.notebook import tqdm
 from typing import Any, Optional, List, Tuple
+import random as orandom
 
 slash = '/' if (platform == "darwin" or platform == "linux") else '\\'
 BASE_DIR = sys.path[0] + "/.."
