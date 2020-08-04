@@ -78,7 +78,7 @@ def get_rays(H: int, W: int, focal: float, c2w: jnp.ndarray) -> jnp.ndarray:
 
 # --- change batch_size here ---
 L_embed = 10
-batch_size = 252*189*2
+batch_size = 2016*1512
 def render_rays(
     net_fn: Any,
     rays: jnp.ndarray,
@@ -166,7 +166,7 @@ def evaluate(params: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray]:
 
 if __name__ == "__main__":
     # --- Load the fortress scene in 1\factor^2 resolution ---
-    factor = 16
+    factor = 2
     imagedir = LLFF_DATA+"/fortress"
     print(f"basedir is: {imagedir}")
     # images, raw_poses, bds, render_poses, i_test = load_llff_data(imagedir, factor=64,
@@ -204,8 +204,7 @@ if __name__ == "__main__":
     N_iters = 1000
     psnrs: List[float] = []
     iternums: List[int] = []
-    i_plot = 10
-    batch_size = 126*95
+    i_plot = 20
     for i in range(N_iters + 1):
         t = time.perf_counter()
         opt_state = update(i, opt_state, key)
