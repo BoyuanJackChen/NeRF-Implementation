@@ -15,8 +15,8 @@ import os
 from load_llff import *
 
 slash = '/' if (platform == "darwin" or platform == "linux") else '\\'
-BASE_DIR = sys.path[0] + "/../.."
-DATA_DIR = BASE_DIR + '/Dataset'
+BASE_DIR = sys.path[0] + "/.."
+DATA_DIR = BASE_DIR + '/../Dataset'
 CODE_DIR = BASE_DIR + "/Code"
 LLFF_DATA = DATA_DIR+"/nerf_llff_data"
 
