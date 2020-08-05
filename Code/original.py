@@ -84,7 +84,7 @@ def render_rays(
     near: float = 2.0,
     far: float = 6.0,
     N_samples: int = 64,
-    L_embed: int = 6,
+    L_embed: int = L_embed,
     batch_size: int = batch_size,
     rng: Optional[Any] = None,
     rand: bool = False,
