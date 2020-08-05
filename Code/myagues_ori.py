@@ -84,7 +84,7 @@ def render_rays(
     far: float = 6.0,
     N_samples: int = 64,
     L_embed: int = 6,
-    batch_size: int = 10000,
+    batch_size: int = batch_size,
     rng: Optional[Any] = None,
     rand: bool = False,
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
