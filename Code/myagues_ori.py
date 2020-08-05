@@ -78,7 +78,7 @@ def get_rays(H: int, W: int, focal: float, c2w: jnp.ndarray) -> jnp.ndarray:
 
 # --- change batch_size here ---
 L_embed = 10
-batch_size = 126*95
+batch_size = 504*378*2
 def render_rays(
     net_fn: Any,
     rays: jnp.ndarray,
@@ -99,15 +99,18 @@ def render_rays(
             * (far - near)
             / N_samples )
     pts = rays_o[..., None, :] + rays_d[..., None, :] * z_vals[..., :, None]
+
     # Run network
     pts_flat = jnp.reshape(pts, [-1, 3])
     pts_flat = embed_fn(pts_flat, L_embed)
     raw = lax.map(net_fn, jnp.reshape(pts_flat, [-1, batch_size, pts_flat.shape[-1]]))
     # jax.profiler.save_device_memory_profile("myagues_raw.prof")
     raw = jnp.reshape(raw, list(pts.shape[:-1]) + [4])
+
     # Compute opacities and colors
     sigma_a = relu(raw[..., 3])
     rgb = sigmoid(raw[..., :3])
+
     # Do volume rendering
     dists = jnp.concatenate(
         [ z_vals[..., 1:] - z_vals[..., :-1],
@@ -141,8 +144,12 @@ def loss_fun(
 
 @jit
 def update(i: int, opt_state: Any, rng: Any) -> Any:
+    idx = orandom.randint(0, len(sorted_list) - 1)
+    this_img = np.asarray(imageio.imread(imagedir + '/' + sorted_list[idx]))
+    print("image read")
     img_rng, fn_rng = random.split(random.fold_in(rng, i))
-    batch = (this_ray, this_img[...,:3]/255.)  # !!! didn't have this [0]
+    img_idx = random.randint(img_rng, (1,), minval=0, maxval=len(sorted_list)-1)
+    batch = (train_rays[img_idx][0], this_img[...,:3]/255.)  # !!! didn't have this [0]
     params = get_params(opt_state)
     print("entering loss")
     grads, _ = grad(loss_fun, has_aux=True)(params, batch, fn_rng, True)
@@ -159,14 +166,14 @@ def evaluate(params: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray]:
 
 if __name__ == "__main__":
     # --- Load the fortress scene in 1\factor^2 resolution ---
-    factor = 32
+    factor = 8
     imagedir = LLFF_DATA+"/fortress"
     print(f"basedir is: {imagedir}")
-    # images, raw_poses, bds, render_poses, i_test = load_llff_data(imagedir, factor=64,
-    #         recenter=True, bd_factor=.75, spherify=False, path_zflat=False)
-    raw_poses, bds, render_poses, i_test = load_llff_data_noimage(imagedir, factor=factor,
+    images, raw_poses, bds, render_poses, i_test = load_llff_data(imagedir, factor=64,
             recenter=True, bd_factor=.75, spherify=False, path_zflat=False)
-    # images = jnp.array(images)
+    images = jnp.array(images)
+    # raw_poses, bds, render_poses, i_test = load_llff_data_noimage(imagedir, factor=factor,
+    #         recenter=True, bd_factor=.75, spherify=False, path_zflat=False)
     poses = jnp.array(poses_35_to_44(raw_poses))
     focal = get_focal(bds)
     # print(f"images shape {images.shape}; poses shape {poses.shape}; focal is {focal}")
@@ -177,18 +184,18 @@ if __name__ == "__main__":
     _, model_params = init_fn(key, input_shape=(3 + 3 * 2 * L_embed,))
     opt_init, opt_update, get_params = optimizers.adam(step_size=5e-4, b1=0.9, b2=0.999, eps=1e-08)
     opt_state = opt_init(model_params)
-    # testimg, testpose = images[0], poses[0]
+    testimg, testpose = images[0], poses[0]
 
-    basedir = LLFF_DATA + "/fortress"
-    imagedir = basedir + "/images"
-    if factor is not None:
-        imagedir += "_" + str(factor)
-    print(f"basedir is: {imagedir}")
-    sorted_list = os.listdir(imagedir)
-    sorted_list.sort()
-    testimg = imageio.imread(imagedir + "/" + sorted_list[0])[..., :3] / 255.
-    testimg = np.asarray(testimg)
-    testpose = poses[0]
+    # basedir = LLFF_DATA + "/fortress"
+    # imagedir = basedir + "/images"
+    # if factor is not None:
+    #     imagedir += "_" + str(factor)
+    # print(f"basedir is: {imagedir}")
+    # sorted_list = os.listdir(imagedir)
+    # sorted_list.sort()
+    # testimg = imageio.imread(imagedir + "/" + sorted_list[0])[..., :3] / 255.
+    # testimg = np.asarray(testimg)
+    # testpose = poses[0]
 
     H, W, _ = testimg.shape
     train_rays = lax.map(lambda pose: get_rays(H, W, focal, pose), poses)
@@ -200,9 +207,6 @@ if __name__ == "__main__":
     i_plot = 20
     for i in range(N_iters + 1):
         t = time.perf_counter()
-        idx = orandom.randint(0, len(sorted_list) - 1)
-        this_img = np.asarray(imageio.imread(imagedir + '/' + sorted_list[idx]))
-        this_ray = train_rays[ids][0]
         opt_state = update(i, opt_state, key)
 
         if i % i_plot == 0:
