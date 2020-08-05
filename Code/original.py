@@ -38,7 +38,6 @@ def get_focal(bds, dt=.75):
     focal = mean_dz
     return focal
 
-
 def build_model(D: int = 8, W: int = 256) -> Any:
     """Tiny NeRF network."""
     dense_block = lambda block_rep=1, W=W: [Dense(W), Relu] * block_rep
@@ -60,6 +59,9 @@ def embed_fn(x: jnp.ndarray, L_embed: int) -> jnp.ndarray:
         for fn in [jnp.sin, jnp.cos]:
             rets.append(fn(2.0 ** i * x))
     return jnp.concatenate(rets, -1)
+    # rets = vmap(lambda idx: 2.0 ** idx * x)(jnp.arange(L_embed))
+    # res = jnp.concatenate([x[None, ...], jnp.sin(rets), jnp.cos(rets)], 0)
+    # return jnp.reshape(jnp.swapaxes(res, 0, 1), [-1, 3 + 3 * 2 * L_embed])
 
 
 @partial(jit, static_argnums=(0, 1, 2))
@@ -74,7 +76,6 @@ def get_rays(H: int, W: int, focal: float, c2w: jnp.ndarray) -> jnp.ndarray:
     return jnp.stack([rays_o, rays_d])
 
 
-# --- change batch_size here ---
 def render_rays(
     net_fn: Any,
     rays: jnp.ndarray,
@@ -82,12 +83,13 @@ def render_rays(
     far: float = 6.0,
     N_samples: int = 64,
     L_embed: int = 10,
-    batch_size: int = 252*189*2,
+    batch_size: int = 252*189,
     rng: Optional[Any] = None,
     rand: bool = False,
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
 
     rays_o, rays_d = rays
+
     # Compute 3D query points
     z_vals = jnp.linspace(near, far, N_samples)
     if rand:
@@ -101,22 +103,28 @@ def render_rays(
     # Run network
     pts_flat = jnp.reshape(pts, [-1, 3])
     pts_flat = embed_fn(pts_flat, L_embed)
+
     raw = lax.map(net_fn, jnp.reshape(pts_flat, [-1, batch_size, pts_flat.shape[-1]]))
     raw = jnp.reshape(raw, list(pts.shape[:-1]) + [4])
 
     # Compute opacities and colors
     sigma_a = relu(raw[..., 3])
     rgb = sigmoid(raw[..., :3])
+
     # Do volume rendering
     dists = jnp.concatenate(
         [
             z_vals[..., 1:] - z_vals[..., :-1],
             jnp.broadcast_to([1e10], z_vals[..., :1].shape),
-        ], -1 )
+        ],
+        -1,
+    )
+
     alpha = 1.0 - jnp.exp(-sigma_a * dists)
     alpha_ = jnp.minimum(1.0, 1.0 - alpha + 1e-10)
     trans = jnp.concatenate([jnp.ones_like(alpha_[..., :1]), alpha_[..., :-1]], -1)
     weights = alpha * jnp.cumprod(trans, -1)
+
     rgb_map = jnp.sum(weights[..., None] * rgb, -2)
     depth_map = jnp.sum(weights * z_vals, -1)
     acc_map = jnp.sum(weights, -1)
@@ -139,6 +147,7 @@ def loss_fun(
 
 @jit
 def update(i: int, opt_state: Any, rng: Any) -> Any:
+    """Train step."""
     img_rng, fn_rng = random.split(random.fold_in(rng, i))
     img_idx = random.randint(img_rng, (1,), minval=0, maxval=images.shape[0])[0]
     batch = (train_rays[img_idx], images[img_idx])
@@ -149,6 +158,7 @@ def update(i: int, opt_state: Any, rng: Any) -> Any:
 
 @jit
 def evaluate(params: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray]:
+    """Evaluation step w/ PSNR metric."""
     loss, rgb = loss_fun(params, (test_rays, testimg))
     psnr = -10.0 * jnp.log(loss) / jnp.log(10.0)
     return rgb, psnr
@@ -190,11 +200,10 @@ if __name__ == "__main__":
     H, W, _ = testimg.shape
     train_rays = lax.map(lambda pose: get_rays(H, W, focal, pose), poses)
     test_rays = get_rays(H, W, focal, testpose)
-
-    N_iters = 30000
+    N_iters = 1000
     psnrs: List[float] = []
     iternums: List[int] = []
-    i_plot = 200
+    i_plot = 100
 
     for i in range(N_iters + 1):
         t = time.perf_counter()
@@ -212,7 +221,5 @@ if __name__ == "__main__":
             ax1.axis("off")
             ax2.plot(iternums, psnrs)
             plt.show()
-
-    final_model_fn = partial(model_fn, get_params(opt_state))
 
     final_model_fn = partial(model_fn, get_params(opt_state))
