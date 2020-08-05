@@ -85,26 +85,38 @@ def render_rays(
     near: float = 2.0,
     far: float = 6.0,
     N_samples: int = 64,
-    L_embed: int = 10,
-    batch_size: int = batch_size,
+    L_embed: int = 6,
+    batch_size: int = 10000,
     rng: Optional[Any] = None,
     rand: bool = False,
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    print("in render_rays")
+
     rays_o, rays_d = rays
+
     # Compute 3D query points
     z_vals = jnp.linspace(near, far, N_samples)
     if rand:
-        z_vals += ( random.uniform(rng, list(rays_o.shape[:-1]) + [N_samples])
+        z_vals += (
+            random.uniform(rng, list(rays_o.shape[:-1]) + [N_samples])
             * (far - near)
-            / N_samples )
+            / N_samples
+        )
     pts = rays_o[..., None, :] + rays_d[..., None, :] * z_vals[..., :, None]
 
     # Run network
     pts_flat = jnp.reshape(pts, [-1, 3])
     pts_flat = embed_fn(pts_flat, L_embed)
+
+    # raw = net_fn(pts_flat)
+
+    # def batchify(fn, chunk=1024 * 32):
+    #     return lambda inputs: jnp.concatenate(
+    #         [fn(inputs[i : i + chunk]) for i in range(0, inputs.shape[0], chunk)], 0,
+    #     )
+
+    # raw = batchify(net_fn)(pts_flat)
+
     raw = lax.map(net_fn, jnp.reshape(pts_flat, [-1, batch_size, pts_flat.shape[-1]]))
-    # jax.profiler.save_device_memory_profile("myagues_raw.prof")
     raw = jnp.reshape(raw, list(pts.shape[:-1]) + [4])
 
     # Compute opacities and colors
@@ -113,10 +125,10 @@ def render_rays(
 
     # Do volume rendering
     dists = jnp.concatenate(
-        [ z_vals[..., 1:] - z_vals[..., :-1],
+        [
+            z_vals[..., 1:] - z_vals[..., :-1],
             jnp.broadcast_to([1e10], z_vals[..., :1].shape),
-        ], -1,
-    )
+        ], -1 )
     alpha = 1.0 - jnp.exp(-sigma_a * dists)
     alpha_ = jnp.minimum(1.0, 1.0 - alpha + 1e-10)
     trans = jnp.concatenate([jnp.ones_like(alpha_[..., :1]), alpha_[..., :-1]], -1)
@@ -125,6 +137,7 @@ def render_rays(
     rgb_map = jnp.sum(weights[..., None] * rgb, -2)
     depth_map = jnp.sum(weights * z_vals, -1)
     acc_map = jnp.sum(weights, -1)
+
     return rgb_map, depth_map, acc_map
 
 
@@ -137,18 +150,16 @@ def loss_fun(
     """Compute loss function for optimizer and return generated image."""
     rays, target = batch
     model_fn_ = partial(model_fn, params)
-    rgb, _, _ = render_rays(model_fn_, rays, near=2., far=6., N_samples=64,
-                            L_embed=L_embed, rng=rng, rand=rand)
+    rgb, _, _ = render_rays(model_fn_, rays, rng=rng, rand=rand)
     return jnp.mean(jnp.square(rgb - target)), rgb
 
 
 @jit
 def update(i: int, opt_state: Any, rng: Any) -> Any:
     img_rng, fn_rng = random.split(random.fold_in(rng, i))
-    img_idx = random.randint(img_rng, (1,), minval=0, maxval=images.shape[0]-1)
-    batch = (train_rays[img_idx][0], images[img_idx][...,:3]/255.)
+    img_idx = random.randint(img_rng, (1,), minval=0, maxval=images.shape[0])[0]
+    batch = (train_rays[img_idx], images[img_idx])
     params = get_params(opt_state)
-    print("entering loss")
     grads, _ = grad(loss_fun, has_aux=True)(params, batch, fn_rng, True)
     return opt_update(i, grads, opt_state)
 
