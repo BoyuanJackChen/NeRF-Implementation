@@ -53,7 +53,6 @@ def build_model(D: int = 8, W: int = 256) -> Any:
     return model
 
 
-L_embed = 10
 def embed_fn(x: jnp.ndarray, L_embed: int) -> jnp.ndarray:
     """Positional encoder embedding."""
     rets = [x]
@@ -76,16 +75,14 @@ def get_rays(H: int, W: int, focal: float, c2w: jnp.ndarray) -> jnp.ndarray:
 
 
 # --- change batch_size here ---
-L_embed = 10
-batch_size = 252*189*2
 def render_rays(
     net_fn: Any,
     rays: jnp.ndarray,
     near: float = 2.0,
     far: float = 6.0,
     N_samples: int = 64,
-    L_embed: int = L_embed,
-    batch_size: int = batch_size,
+    L_embed: int = 10,
+    batch_size: int = 252*189*2,
     rng: Optional[Any] = None,
     rand: bool = False,
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
