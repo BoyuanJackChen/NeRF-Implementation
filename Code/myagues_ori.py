@@ -53,6 +53,7 @@ def build_model(D: int = 8, W: int = 256) -> Any:
     return model
 
 
+L_embed = 10
 def embed_fn(x: jnp.ndarray, L_embed: int) -> jnp.ndarray:
     """Positional encoder embedding."""
     rets = [x]
