@@ -198,10 +198,10 @@ if __name__ == "__main__":
     train_rays = lax.map(lambda pose: get_rays(H, W, focal, pose), poses)
     test_rays = get_rays(H, W, focal, testpose)
 
-    N_iters = 1000
+    N_iters = 30000
     psnrs: List[float] = []
     iternums: List[int] = []
-    i_plot = 20
+    i_plot = 500
     for i in range(N_iters + 1):
         t = time.perf_counter()
         opt_state = update(i, opt_state, key)
