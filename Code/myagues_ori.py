@@ -145,7 +145,7 @@ def loss_fun(
 @jit
 def update(i: int, opt_state: Any, rng: Any) -> Any:
     img_rng, fn_rng = random.split(random.fold_in(rng, i))
-    img_idx = random.randint(img_rng, (1,), minval=0, maxval=len(sorted_list)-1)
+    img_idx = random.randint(img_rng, (1,), minval=0, maxval=images.shape[0]-1)
     batch = (train_rays[img_idx][0], images[img_idx][...,:3]/255.)
     params = get_params(opt_state)
     print("entering loss")
@@ -166,7 +166,7 @@ if __name__ == "__main__":
     factor = 32
     imagedir = LLFF_DATA+"/fortress"
     print(f"basedir is: {imagedir}")
-    images, raw_poses, bds, render_poses, i_test = load_llff_data(imagedir, factor=64,
+    images, raw_poses, bds, render_poses, i_test = load_llff_data(imagedir, factor=factor,
             recenter=True, bd_factor=.75, spherify=False, path_zflat=False)
     images = jnp.array(images)
     # raw_poses, bds, render_poses, i_test = load_llff_data_noimage(imagedir, factor=factor,

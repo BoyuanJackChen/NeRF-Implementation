@@ -202,7 +202,7 @@ if __name__ == "__main__":
         t = time.perf_counter()
         idx = orandom.randint(0, len(sorted_list) - 1)
         this_img = np.asarray(imageio.imread(imagedir + '/' + sorted_list[idx]))
-        this_ray = train_rays[ids][0]
+        this_ray = train_rays[idx][0]
         opt_state = update(i, opt_state, key)
 
         if i % i_plot == 0:
