@@ -18,8 +18,6 @@ slash = '/' if (platform == "darwin" or platform == "linux") else '\\'
 BASE_DIR = sys.path[0] + "/.."
 DATA_DIR = BASE_DIR + '/../Dataset'
 CODE_DIR = BASE_DIR + "/Code"
-LLFF_DATA = DATA_DIR+"/nerf_llff_data"
-
 
 @jax.jit
 def posenc(x):     # γ(.)
@@ -176,7 +174,7 @@ if __name__ == "__main__":
     embed_fn = posenc
 
     # --- Load the fortress scene in 1\factor^2 resolution ---
-    imagedir = LLFF_DATA+"/fortress"
+    imagedir = BASE_DIR+"/Dataset/fortress_8"
     print(f"basedir is: {imagedir}")
     images, raw_poses, bds, render_poses, i_test = load_llff_data(imagedir, factor=64,
             recenter=True, bd_factor=.75, spherify=False, path_zflat=False)
